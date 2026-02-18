@@ -8,7 +8,7 @@ st.set_page_config(page_title="賺大錢V1 資產看板", layout="wide")
 st.title("💰 賺大錢V1：資產規畫即時追蹤")
 
 # 1. 處理 Google Sheet 網址 (將 edit 改為 export?format=csv)
-raw_url = "https://docs.google.com/spreadsheets/d/187zWkatewIxuR6ojgss40nP2WWz1gL8D4Gu1zISgp6M/export?format=csv
+raw_url = "https://docs.google.com/spreadsheets/d/187zWkatewIxuR6ojgss40nP2WWz1gL8D4Gu1zISgp6M/export?format=csv"
 
 @st.cache_data(ttl=600)  # 每 10 分鐘自動更新一次，避免被 Yahoo 封鎖
 def load_data():

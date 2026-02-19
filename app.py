@@ -141,11 +141,84 @@ try:
 
     # --- 第二頁內容 (待填入) ---
     with tab2:
-        st.header("🎯 波若威模式：新飆股偵測區")
-        st.write("這裡會使用最上方的公共函數進行「全市場掃描」。")
-        # 您剛才提到的「波若威模式」代碼可以寫在這裡
-        if st.button("🔥 啟動新飆股偵測"):
-            st.write("偵測邏輯運行中... (這裡您可以自行發揮)")
+        st.header("🚀 波若威模式：新飆股偵測雷達")
+    st.caption("策略：尋找今日量增 > 2倍、漲幅 > 3% 且 10MA 乖離 < 12% 的起漲標的")
+    
+    # 1. 定義偵測池 (您可以自由增減代碼)
+    market_watch = [
+        "4908", "2451", "3034", "2330", "2317", "2382", "3231", "6669", 
+        "2308", "2357", "3363", "4979", "3163", "1513", "1519", "1605", "2603"
+    ]
 
+    if st.button("🔥 執行全市場強勢股掃描"):
+        results = []
+        progress_bar = st.progress(0)
+        status_txt = st.empty()
+        
+        for i, code in enumerate(market_watch):
+            status_txt.text(f"正在分析: {code}...")
+            
+            # 使用與第一頁相同的後綴判斷邏輯
+            t_full = f"{code}.TW"
+            try:
+                # 抓取 20 天數據以計算均量與 10MA
+                h = yf.download(t_full, period="20d", progress=False)
+                
+                # 如果上市抓不到，嘗試上櫃
+                if h.empty:
+                    t_full = f"{code}.TWO"
+                    h = yf.download(t_full, period="20d", progress=False)
+                
+                if not h.empty and len(h) >= 10:
+                    # 處理 yfinance 可能產生的多重索引
+                    if isinstance(h.columns, pd.MultiIndex):
+                        h.columns = h.columns.get_level_values(0)
+                    
+                    cp = float(h['Close'].iloc[-1])    # 現價
+                    pp = float(h['Close'].iloc[-2])    # 昨收
+                    cv = int(h['Volume'].iloc[-1])    # 今日量
+                    av = int(h['Volume'].tail(5).mean()) # 5日均量
+                    ma10 = float(h['Close'].rolling(window=10).mean().iloc[-1])
+                    
+                    vol_ratio = cv / av
+                    change_pct = ((cp - pp) / pp) * 100
+                    bias_10ma = ((cp - ma10) / ma10) * 100
+                    
+                    # --- 波若威模式核心條件 ---
+                    # 1. 量能翻倍 (主力進場)
+                    # 2. 漲幅 > 3% (發動)
+                    # 3. 乖離 < 12% (未過熱)
+                    if vol_ratio > 2 and change_pct > 3 and bias_10ma < 12:
+                        results.append({
+                            "代碼": code,
+                            "漲跌幅%": round(change_pct, 2),
+                            "量能倍數": round(vol_ratio, 2),
+                            "10MA乖離%": round(bias_10ma, 2),
+                            "今日成交量": cv,
+                            "關鍵防守位": round(h['Low'].iloc[-1], 2)
+                        })
+            except Exception as e:
+                pass
+            
+            progress_bar.progress((i + 1) / len(market_watch))
+        
+        status_txt.empty()
+        
+        if results:
+            res_df = pd.DataFrame(results).sort_values("量能倍數", ascending=False)
+            st.success(f"🚩 偵測完成！共有 {len(res_df)} 檔符合波若威起漲模式")
+            st.dataframe(res_df, use_container_width=True)
+            
+            # 氣泡圖：視覺化尋找最佳標的
+            st.subheader("📍 戰術分佈圖 (找左上方：量大且乖離小)")
+            fig = px.scatter(res_df, x="10MA乖離%", y="量能倍數", text="代碼", size="今日成交量",
+                             color="漲跌幅%", color_continuous_scale="Reds",
+                             title="量能 vs 乖離 分佈圖")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("☁️ 目前偵測池中暫無符合『波若威模式』的標的。")
+
+    st.write("---")
+    st.info("💡 貼心提醒：此掃描建議在盤後或收盤前 1 小時執行最為準確。")
 except Exception as e:
     st.error(f"發生預期外錯誤: {e}")

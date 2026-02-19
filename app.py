@@ -23,7 +23,7 @@ def get_live_prices(tickers_raw):
         search_list.append(f"{t}.TWO")
     
     # 一次性抓取所有可能的代碼 (上市+上櫃)
-    data = yf.download(search_list, period="1d", group_by='ticker', silent=True)
+    data = yf.download(search_list, period="1d", group_by='ticker')
     
     for t in tickers_raw:
         # 先試上市 (.TW)

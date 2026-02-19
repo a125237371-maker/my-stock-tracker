@@ -2,50 +2,107 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
-import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="賺大錢V1 - 績效追蹤版", layout="wide")
-st.title("📈 賺大錢V1：資產成長與績效追蹤")
+st.set_page_config(page_title="賺大錢V1 資產看板", layout="wide")
+st.title("💰 賺大錢V1：自動偵測資產追蹤")
 
-# Google Sheet 網址 (維持不變)
-sheet_base = "https://docs.google.com/spreadsheets/d/187zWkatewIxuR6ojgss40nP2WWz1gL8D4Gu1zISgp6M/export?format=csv"
+raw_url = "https://docs.google.com/spreadsheets/d/187zWkatewIxuR6ojgss40nP2WWz1gL8D4Gu1zISgp6M/export?format=csv"
 
 @st.cache_data(ttl=600)
-def load_all_data():
-    # 讀取第一個分頁 (持股)
-    df_portfolio = pd.read_csv(sheet_base)
-    # 嘗試讀取 History 分頁 (這裡假設 History 是第二個分頁，gid=... 是分頁 ID)
-    # 註：如果不知道 gid，最簡單是另開一個網址讀取
-    history_url = sheet_base + "&gid=您的History分頁ID" # 這裡您可以先用簡單的範例數據
-    return df_portfolio
+def load_data():
+    df = pd.read_csv(raw_url)
+    df['標的代碼'] = df['標的代碼'].astype(str).str.strip()
+    return df
+
+def get_live_prices(tickers_raw):
+    price_dict = {}
+    search_list = []
+    for t in tickers_raw:
+        search_list.append(f"{t}.TW")
+        search_list.append(f"{t}.TWO")
+    
+    data = yf.download(search_list, period="1d", group_by='ticker', progress=False)
+    
+    for t in tickers_raw:
+        tw_price = data[f"{t}.TW"]['Close'].iloc[-1] if f"{t}.TW" in data.columns and not pd.isna(data[f"{t}.TW"]['Close'].iloc[-1]) else None
+        if tw_price:
+            price_dict[t] = tw_price
+        else:
+            two_price = data[f"{t}.TWO"]['Close'].iloc[-1] if f"{t}.TWO" in data.columns and not pd.isna(data[f"{t}.TWO"]['Close'].iloc[-1]) else None
+            price_dict[t] = two_price if two_price else 0
+    return price_dict
+
+# --- 🎯 修正版：除息公告偵測函數 ---
+@st.cache_data(ttl=3600)
+def check_dividend_alerts(tickers_raw):
+    alert_list = []
+    today = datetime.now().date()
+    for t in tickers_raw:
+        # 修正判斷邏輯：債券 ETF 或代碼帶字母的都走 .TW 嘗試，抓不到再換
+        t_code = f"{t}.TW"
+        s = yf.Ticker(t_code)
+        cal = s.calendar
+        
+        # 如果上市抓不到，且代碼是 4 位純數字（上櫃股票），嘗試 .TWO
+        if (cal is None or 'Dividend Date' not in cal) and (len(t) == 4 and t.isdigit()):
+            t_code = f"{t}.TWO"
+            s = yf.Ticker(t_code)
+            cal = s.calendar
+
+        if cal is not None and 'Dividend Date' in cal:
+            div_date = cal['Dividend Date']
+            if div_date >= (today - timedelta(days=3)):
+                alert_list.append({
+                    "標的代碼": t,
+                    "除息日": div_date,
+                    "預估配息": s.info.get('dividendRate', "公告中"),
+                    "目前股價": s.info.get('currentPrice', "N/A"),
+                    "殖利率(%)": f"{s.info.get('dividendYield', 0)*100:.2f}%" if s.info.get('dividendYield') else "計算中"
+                })
+    return pd.DataFrame(alert_list)
 
 try:
-    df = load_all_data()
-    # (中間抓取即時價格的邏輯維持跟上次一樣...)
+    # 確保先載入 df
+    df = load_data()
+    st.info("🔄 正在同步行情與掃描 00687B 等標的公告...")
     
-    # --- 新增：績效累積區塊 ---
-    st.subheader("🚀 資產成長曲線 (Equity Curve)")
+    live_prices = get_live_prices(df['標的代碼'].tolist())
     
-    # 這裡我們先建立一個模擬的歷史數據，等您在 Sheet 填好後我們再對接
-    history_data = {
-        '日期': ['2026-01-01', '2026-01-15', '2026-02-01', '2026-02-18'],
-        '總市值': [8000000, 8350000, 8700000, 9058660],
-        '總投入成本': [7200000, 7250000, 7500000, 7644128]
-    }
-    history_df = pd.DataFrame(history_data)
-    
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(x=history_df['日期'], y=history_df['總市值'], name='總市值', line=dict(color='gold', width=4)))
-    fig_line.add_trace(go.Scatter(x=history_df['日期'], y=history_df['總投入成本'], name='投入成本', fill='tonexty', line=dict(dash='dash')))
-    
-    st.plotly_chart(fig_line, use_container_width=True)
+    df['現價'] = df['標的代碼'].map(live_prices)
+    df['市值'] = df['現價'] * df['持股數']
+    df['成本'] = df['成交均價'] * df['持股數']
+    df['未實現損益'] = df['市值'] - df['成本']
+    df['報酬率(%)'] = (df['未實現損益'] / df['成本'] * 100).round(2)
 
-    # --- 績效分析指標 ---
-    st.subheader("🏆 績效總結")
+    # 儀表板數據
+    total_mkt = df['市值'].sum()
+    total_cost = df['成本'].sum()
+    total_profit = total_mkt - total_cost
+
     c1, c2, c3 = st.columns(3)
-    c1.metric("歷史最高市值", f"${history_df['總市值'].max():,.0f}")
-    c2.metric("資產成長率 (自年初)", f"{((9058660/8000000)-1)*100:.2f}%")
-    c3.metric("目前總水位", f"${9058660:,.0f}")
+    c1.metric("總資產市值", f"${total_mkt:,.0f}")
+    c2.metric("總未實現損益", f"${total_profit:,.0f}", delta=f"{(total_profit/total_cost*100):.2f}%")
+    c3.metric("偵測狀態", "✅ 全資產類型兼容中")
+
+    # --- 🎯 填息戰情室 ---
+    st.write("---")
+    st.subheader("🗓️ 近期除息公告偵測")
+    with st.spinner('掃描中，包含債券 ETF 公告...'):
+        dividend_alerts = check_dividend_alerts(df['標的代碼'].tolist())
+    
+    if not dividend_alerts.empty:
+        st.success(f"📢 偵測到 {len(dividend_alerts)} 筆公告！")
+        st.dataframe(dividend_alerts, use_container_width=True)
+    else:
+        st.write("✨ 目前 47 檔持股暫無最新公告。")
+
+    st.subheader("📊 資產配置分布")
+    fig = px.pie(df, values='市值', names='資產類別', hole=0.4)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("📑 詳細持股清單")
+    st.dataframe(df[['標的代碼', '標的名稱', '持股數', '現價', '未實現損益', '報酬率(%)', '資產類別']], use_container_width=True)
 
 except Exception as e:
-    st.error(f"連線失敗: {e}")
+    st.error(f"發生預期外錯誤: {e}")

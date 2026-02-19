@@ -103,6 +103,42 @@ try:
 
     st.subheader("📑 詳細持股清單")
     st.dataframe(df[['標的代碼', '標的名稱', '持股數', '現價', '未實現損益', '報酬率(%)', '資產類別']], use_container_width=True)
+# --- 🔍 投資決策輔助 (標的篩選與買賣點) ---
+st.write("---")
+st.subheader("🔍 投資決策輔助 (技術面偵測)")
 
+def get_signals(stock_code):
+    t_code = f"{stock_code}.TW" if len(stock_code) <= 4 and stock_code.isdigit() else f"{stock_code}.TWO"
+    data = yf.download(t_code, period="60d", interval="1d", progress=False)
+    
+    if data.empty: return "資料不足"
+    
+    # 計算 20日均線 (MA20) 與 RSI
+    delta = data['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    current_price = data['Close'].iloc[-1]
+    ma20 = data['Close'].rolling(window=20).mean().iloc[-1]
+    
+    # 簡單判斷邏輯
+    if rsi.iloc[-1] < 30:
+        return "🔥 超跌 (建議關注買點)"
+    elif rsi.iloc[-1] > 70:
+        return "⚠️ 超漲 (建議減碼)"
+    elif current_price > ma20:
+        return "📈 多頭趨勢"
+    else:
+        return "☁️ 整理中"
+
+# 執行偵測
+if st.button("🚀 開始掃描持股買賣信號"):
+    results = []
+    for code in df['標的代碼'].tolist()[:10]: # 先測試前 10 檔，避免跑太久
+        signal = get_signals(code)
+        results.append({"標的": code, "技術信號": signal})
+    st.table(pd.DataFrame(results))
 except Exception as e:
     st.error(f"發生預期外錯誤: {e}")

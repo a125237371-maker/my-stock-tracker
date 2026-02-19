@@ -4,13 +4,13 @@ import yfinance as yf
 import plotly.express as px
 
 # 1. 網頁基本設定
-st.set_page_config(page_title="賺大錢V1：分頁測試版", layout="wide")
-st.title("💰 賺大錢V1：分頁功能測試")
+st.set_page_config(page_title="賺大錢V1：雙分頁戰術看板", layout="wide")
+st.title("💰 賺大錢V1：資產與戰術看板")
 
 # 2. 定義頁籤 (分頁切換)
-tab1, tab2 = st.tabs(["📊 資產監控 (待填入)", "🎯 戰術實驗區 (空白)"])
+tab1, tab2 = st.tabs(["📊 資產監控 (穩定版)", "🎯 戰術實驗區 (空白)"])
 
-# 3. 讀取 Google Sheet 數據 (這是兩邊共用的資料源)
+# 3. 讀取數據 (資料源共用)
 raw_url = "https://docs.google.com/spreadsheets/d/187zWkatewIxuR6ojgss40nP2WWz1gL8D4Gu1zISgp6M/export?format=csv"
 
 @st.cache_data(ttl=600)
@@ -19,13 +19,12 @@ def load_data():
         df = pd.read_csv(raw_url)
         df['標的代碼'] = df['標的代碼'].astype(str).str.strip()
         return df
-    except Exception as e:
-        st.error(f"讀取資料失敗: {e}")
+    except:
         return pd.DataFrame()
 
-# --- 第一頁：準備填入您找回來的「穩定版」代碼 ---
+# --- 第一頁：資產監控 (放入您最穩定的那一版邏輯) ---
 with tab1:
-   import streamlit as st
+import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
@@ -134,7 +133,7 @@ try:
 except Exception as e:
     st.error(f"發生預期外錯誤: {e}")
 
-# --- 第二頁：完全空白，不放任何代碼 ---
+# --- 第二頁：實驗區 (目前留空) ---
 with tab2:
-    st.header("第二分頁：新功能開發")
-    st.write("這裡是空白區，目前沒有任何代碼，不會干擾第一頁。")
+    st.header("🎯 戰術開發實驗區")
+    st.write("這裡是空白區。待第一頁完全確認沒問題後，我們再慢慢把「關鍵一條線」加進來。")
